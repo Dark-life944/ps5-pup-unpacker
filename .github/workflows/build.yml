@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y cmake make g++ tar
+          sudo apt install -y cmake make g++ tar p7zip-full mtools
 
       - name: Create build directory
         run: mkdir -p build
@@ -41,7 +41,7 @@ jobs:
       - name: Find and Unpack Large PUP file
         run: |
           mkdir -p input output
-          PUP_FILE=$(find input -name "*.pup.dec" | head -n 1)
+          PUP_FILE=$(find input -type f -name "*.pup.dec" | head -n 1)
           if [[ -z "$PUP_FILE" ]]; then
             echo "No PUP file found in input/. Exiting..."
             exit 1
@@ -50,14 +50,37 @@ jobs:
           ~/bin/pup_unpacker "$PUP_FILE" output/ || echo "Unpacking failed"
           ls -la output/
 
-      - name: Compress Unpacked Files (Using tar.gz for Large Files)
+      - name: Extract Nested Filesystems
+        run: |
+          mkdir -p extracted
+          for img in output/*.img output/*.fs; do
+            if [ -f "$img" ]; then
+              echo "Extracting filesystem from $img..."
+              if 7z l "$img" >/dev/null 2>&1; then
+                7z x "$img" -o"extracted/$(basename "$img" .img)"
+              else
+                sudo mount -o loop,ro "$img" /mnt && cp -r /mnt/* extracted/ && sudo umount /mnt
+              fi
+            fi
+          done
+          ls -la extracted/
+
+      - name: Compress Unpacked Files
         run: |
           tar -czvf unpacked.tar.gz -C output .
-          ls -lah unpacked.tar.gz
+          tar -czvf extracted.tar.gz -C extracted .
+          ls -lah unpacked.tar.gz extracted.tar.gz
 
-      - name: Upload unpacked files (Chunked Upload for Large Files)
+      - name: Upload unpacked files
         uses: actions/upload-artifact@v4
         with:
           name: unpacked_files
           path: unpacked.tar.gz
+          retention-days: 3
+
+      - name: Upload extracted files
+        uses: actions/upload-artifact@v4
+        with:
+          name: extracted_files
+          path: extracted.tar.gz
           retention-days: 3
