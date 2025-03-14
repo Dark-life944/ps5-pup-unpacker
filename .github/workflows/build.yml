@@ -1,0 +1,63 @@
+name: Build and Unpack Large PUP
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake make g++ tar
+
+      - name: Create build directory
+        run: mkdir -p build
+
+      - name: Run CMake
+        run: cmake -S . -B build
+
+      - name: Build with Make
+        run: cmake --build build --target all -- -j$(nproc)
+
+      - name: Install binary
+        run: |
+          mkdir -p ~/bin
+          cp build/pup_unpacker ~/bin/
+          sudo cp build/pup_unpacker /usr/local/bin/
+          ls -la ~/bin/
+
+      - name: Find and Unpack Large PUP file
+        run: |
+          mkdir -p input output
+          PUP_FILE=$(find input -name "*.pup.dec" | head -n 1)
+          if [[ -z "$PUP_FILE" ]]; then
+            echo "No PUP file found in input/. Exiting..."
+            exit 1
+          fi
+          echo "Found PUP file: $PUP_FILE"
+          ~/bin/pup_unpacker "$PUP_FILE" output/ || echo "Unpacking failed"
+          ls -la output/
+
+      - name: Compress Unpacked Files (Using tar.gz for Large Files)
+        run: |
+          tar -czvf unpacked.tar.gz -C output .
+          ls -lah unpacked.tar.gz
+
+      - name: Upload unpacked files (Chunked Upload for Large Files)
+        uses: actions/upload-artifact@v4
+        with:
+          name: unpacked_files
+          path: unpacked.tar.gz
+          retention-days: 3
